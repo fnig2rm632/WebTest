@@ -206,62 +206,71 @@ public class WebSocketManager(
     }
 
     private async Task WaitForMessages(Guid playerId, WebSocket webSocket)
+{
+    GameStatus updatedGameState = new GameStatus();
+    try
     {
-        GameStatus updatedGameState = new GameStatus();
-        var buffer = new byte[4096];
-        try
+        while (webSocket.State == WebSocketState.Open)
         {
-            while (webSocket.State == WebSocketState.Open)
+            var messageBytes = new List<byte>();
+            WebSocketReceiveResult result;
+            do
             {
-                var result = await webSocket.ReceiveAsync(
-                    new ArraySegment<byte>(buffer), 
-                    CancellationToken.None);
-
-                if (result.MessageType == WebSocketMessageType.Close)
-                {
-                    logger.LogInformation("Player {PlayerId} closed connection", playerId);
-                    break;
-                }
-
-                var message = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                logger.LogDebug("Received from {PlayerId}: {Message}", playerId, message);
-
-                var gameMove = JsonSerializer.Deserialize<GameMove>(message);
-                updatedGameState = await gameLogicService.ProcessMove(playerId, gameMove);
-
-                await Task.WhenAll(
-                    SendGameState(updatedGameState.Player1Id, updatedGameState),
-                    SendGameState(updatedGameState.Player2Id, updatedGameState));
+                var buffer = new byte[1024 * 16];
+                result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
+                messageBytes.AddRange(buffer.Take(result.Count));
             }
-        }
-        catch (WebSocketException ex)
-        {
-            logger.LogWarning(ex, "WebSocket error for {PlayerId}", playerId);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Unexpected error for {PlayerId}", playerId);
-        }
-        finally
-        {
-            using var scope = serviceProvider.CreateScope();
-            var gameRepository = scope.ServiceProvider.GetRequiredService<IGameRepository>();
-            
-            var gameStatus = await gameRepository.FindCreateGameForSearch(playerId.ToString());
-            if (gameStatus != null)
+            while (!result.EndOfMessage);
+
+            if (result.MessageType == WebSocketMessageType.Close)
             {
-                var opponentId = (gameStatus.PlayerWhiteId == playerId.ToString()) ? gameStatus.PlayerBlackId : gameStatus.PlayerWhiteId;
-                gameStatus.WinnerId = opponentId;
-                gameStatus.EndTime = DateTime.Now.ToUniversalTime();
-
-                updatedGameState.WinPlayer = new Guid(opponentId);
-                await Task.WhenAll(
-                    SendGameState(playerId, updatedGameState),
-                    SendGameState(new Guid(opponentId), updatedGameState));
-                
-                _ = await gameRepository.UpdateGame(gameStatus);
+                logger.LogInformation("Player {PlayerId} closed connection", playerId);
+                break;
             }
-            await RemovePlayer(playerId);
+
+            var message = Encoding.UTF8.GetString(messageBytes.ToArray());
+            logger.LogDebug("Received from {PlayerId}: {Message}", playerId, message);
+
+            var gameMove = JsonSerializer.Deserialize<GameMove>(message);
+            updatedGameState = await gameLogicService.ProcessMove(playerId, gameMove);
+
+            await Task.WhenAll(
+                SendGameState(updatedGameState.Player1Id, updatedGameState),
+                SendGameState(updatedGameState.Player2Id, updatedGameState));
         }
     }
+    catch (WebSocketException ex)
+    {
+        logger.LogWarning(ex, "WebSocket error for {PlayerId}", playerId);
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Unexpected error for {PlayerId}", playerId);
+    }
+    finally
+    {
+        using var scope = serviceProvider.CreateScope();
+        var gameRepository = scope.ServiceProvider.GetRequiredService<IGameRepository>();
+        
+        var gameStatus = await gameRepository.FindCreateGameForSearch(playerId.ToString());
+        if (gameStatus != null)
+        {
+            var opponentId = (gameStatus.PlayerWhiteId == playerId.ToString())
+                ? gameStatus.PlayerBlackId
+                : gameStatus.PlayerWhiteId;
+
+            gameStatus.WinnerId = opponentId;
+            gameStatus.EndTime = DateTime.UtcNow;
+
+            updatedGameState.WinPlayer = Guid.Parse(opponentId);
+            await Task.WhenAll(
+                SendGameState(playerId, updatedGameState),
+                SendGameState(Guid.Parse(opponentId), updatedGameState));
+
+            _ = await gameRepository.UpdateGame(gameStatus);
+        }
+
+        await RemovePlayer(playerId);
+    }
+}
 }
