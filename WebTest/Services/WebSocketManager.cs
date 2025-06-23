@@ -13,7 +13,8 @@ namespace WebTest.Services;
 
 public class WebSocketManager(
     IGameLogicService gameLogicService,
-    ILogger<WebSocketManager> logger) : IWedSocketManager
+    ILogger<WebSocketManager> logger,
+    IServiceProvider serviceProvider) : IWedSocketManager
 {
     private readonly ConcurrentDictionary<Guid, WebSocket> _sockets = new();
     private readonly object _locker = new();
@@ -25,7 +26,6 @@ public class WebSocketManager(
         {
             _sockets[playerId] = webSocket;
 
-            // Обновляем TCS без завершения сразу
             _playerReady.AddOrUpdate(
                 playerId,
                 _ => new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously),
@@ -41,20 +41,58 @@ public class WebSocketManager(
 
         logger.LogInformation("Player {PlayerId} added successfully", playerId);
 
-        // Отдельно запускаем приём сообщений
+        // Запускаем приём сообщений
         var receiveTask = WaitForMessages(playerId, webSocket);
 
-        // Только после запуска приёма сообщений считаем игрока готовым
+        // Отмечаем игрока как готового
         if (_playerReady.TryGetValue(playerId, out var tcs))
         {
             tcs.TrySetResult(true);
         }
 
-        // Ждём завершения приёма (не блокируя выше)
+        // Попытка матчмейкинга
+        await TryStartMatchmakingIfReady(playerId);
+
         await receiveTask;
     }
 
-    
+    private async Task TryStartMatchmakingIfReady(Guid playerId)
+    {
+        using var scope = serviceProvider.CreateScope();
+        var gameRepository = scope.ServiceProvider.GetRequiredService<IGameRepository>();
+        // Здесь надо получить Game для playerId
+        var game = await gameRepository.FindGameForIdPlayers(playerId.ToString());
+        if (game == null) return;
+
+        // Определяем соперника
+        Guid? opponentId = null;
+        if (game.PlayerWhiteId == playerId.ToString() && game.PlayerBlackId != "e1856c00-222b-4857-b1ce-c303945b9967")
+        {
+            opponentId = Guid.Parse(game.PlayerBlackId);
+        }
+        else if (game.PlayerBlackId == playerId.ToString())
+        {
+            opponentId = Guid.Parse(game.PlayerWhiteId);
+        }
+
+        if (opponentId == null) return;
+
+        // Проверяем, готов ли соперник
+        if (_playerReady.TryGetValue(opponentId.Value, out var opponentTcs) && opponentTcs.Task.IsCompleted)
+        {
+            // Оба готовы — вызываем матчмейкинг
+            bool success = await TryMatchPlayers(playerId, opponentId.Value, game);
+            if (!success)
+            {
+                logger.LogWarning("Matchmaking failed for players {Player1} and {Player2}", playerId, opponentId);
+            }
+        }
+        else
+        {
+            logger.LogInformation("Opponent {OpponentId} not ready yet for player {PlayerId}", opponentId, playerId);
+        }
+    }
+
     private async Task CloseSocketAsync(WebSocket socket)
     {
         try
@@ -75,10 +113,18 @@ public class WebSocketManager(
 
     public Task RemovePlayer(Guid playerId)
     {
-        Console.WriteLine($"RemovePlayer --> {playerId}");
-        _sockets.TryRemove(playerId, out _);
-        _playerReady.TryRemove(playerId, out _);
-        return Task.CompletedTask;
+        logger.LogInformation("Player {PlayerId} removed successfully", playerId);
+        try
+        {
+            _sockets.TryRemove(playerId, out _);
+            _playerReady.TryRemove(playerId, out _);
+            return Task.CompletedTask;
+        }
+        catch (Exception e)
+        {
+            logger.LogError(e, "Error removing player");
+            return Task.CompletedTask;
+        }
     }
 
     public async Task SendGameState(Guid playerId, GameStatus gameStatus)
@@ -127,11 +173,11 @@ public class WebSocketManager(
     {
         logger.LogInformation("Attempting to match {Player1} and {Player2}", player1, player2);
 
-        if (!await WaitForPlayersToBeReady(player1, player2))
+        /*if (!await WaitForPlayersToBeReady(player1, player2))
         {
             logger.LogError("Players not ready after timeout.");
             return false;
-        }
+        }*/
 
         // Проверяем сокеты и их состояние
         if (!_sockets.TryGetValue(player1, out var socket1) || socket1.State != WebSocketState.Open ||
@@ -161,6 +207,7 @@ public class WebSocketManager(
 
     private async Task WaitForMessages(Guid playerId, WebSocket webSocket)
     {
+        GameStatus updatedGameState = new GameStatus();
         var buffer = new byte[4096];
         try
         {
@@ -180,7 +227,7 @@ public class WebSocketManager(
                 logger.LogDebug("Received from {PlayerId}: {Message}", playerId, message);
 
                 var gameMove = JsonSerializer.Deserialize<GameMove>(message);
-                var updatedGameState = await gameLogicService.ProcessMove(playerId, gameMove);
+                updatedGameState = await gameLogicService.ProcessMove(playerId, gameMove);
 
                 await Task.WhenAll(
                     SendGameState(updatedGameState.Player1Id, updatedGameState),
@@ -197,6 +244,23 @@ public class WebSocketManager(
         }
         finally
         {
+            using var scope = serviceProvider.CreateScope();
+            var gameRepository = scope.ServiceProvider.GetRequiredService<IGameRepository>();
+            
+            var gameStatus = await gameRepository.FindCreateGameForSearch(playerId.ToString());
+            if (gameStatus != null)
+            {
+                var opponentId = (gameStatus.PlayerWhiteId == playerId.ToString()) ? gameStatus.PlayerBlackId : gameStatus.PlayerWhiteId;
+                gameStatus.WinnerId = opponentId;
+                gameStatus.EndTime = DateTime.Now.ToUniversalTime();
+
+                updatedGameState.WinPlayer = new Guid(opponentId);
+                await Task.WhenAll(
+                    SendGameState(playerId, updatedGameState),
+                    SendGameState(new Guid(opponentId), updatedGameState));
+                
+                _ = await gameRepository.UpdateGame(gameStatus);
+            }
             await RemovePlayer(playerId);
         }
     }

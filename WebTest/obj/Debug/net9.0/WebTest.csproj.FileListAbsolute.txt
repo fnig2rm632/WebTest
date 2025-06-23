@@ -145,3 +145,4 @@ C:\Users\Gamov\RiderProjects\WebTest\WebTest\bin\Debug\net9.0\Microsoft.Identity
 C:\Users\Gamov\RiderProjects\WebTest\WebTest\bin\Debug\net9.0\System.IdentityModel.Tokens.Jwt.dll
 C:\Users\Gamov\RiderProjects\WebTest\WebTest\bin\Debug\net9.0\tsconfig.json
 C:\Users\Gamov\RiderProjects\WebTest\WebTest\bin\Debug\net9.0\System.Net.WebSockets.WebSocketProtocol.dll
+C:\Users\Gamov\RiderProjects\WebTest\WebTest\obj\Debug\net9.0\WebTest.sourcelink.json

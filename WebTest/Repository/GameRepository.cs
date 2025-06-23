@@ -40,6 +40,18 @@ public class GameRepository(ApplicationDbContext context) : IGameRepository
         return game;
     }
     
+    public async Task<Game> FindGameForIdPlayersElse(string a, string y)
+    {
+        var game = context.Game.FirstOrDefault(x => x.PlayerWhiteId == a && x.PlayerBlackId == y && x.WinnerId == null);
+
+        if (game == null)
+        {
+            return null;   
+        }
+        
+        return game;
+    }
+    
     public async Task<Game> FindGameForIdPlayers(string a)
     {
         var game = context.Game.FirstOrDefault(x =>

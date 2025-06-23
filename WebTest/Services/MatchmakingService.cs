@@ -81,8 +81,8 @@ public class MatchmakingService(
             else
             {
                 var user = await userRepository.GetByIdAsync(game.PlayerBlackId);
-
-                await wedSocketManager.TryMatchPlayers( Guid.Parse(gameDto.PlayerWhiteId), Guid.Parse(user.Id),game);
+                
+                //await wedSocketManager.TryMatchPlayers( Guid.Parse(gameDto.PlayerWhiteId), Guid.Parse(user.Id),game);
                 
                 return UserMappers.ToUserResponseDto(user!);
                 
@@ -108,12 +108,12 @@ public class MatchmakingService(
             else
             {
                 var user = await userRepository.GetByIdAsync(game.PlayerBlackId);
-                var success = await wedSocketManager.TryMatchPlayers( Guid.Parse(gameDto.PlayerWhiteId), Guid.Parse(user.Id),game);
+                /*var success = await wedSocketManager.TryMatchPlayers( Guid.Parse(gameDto.PlayerWhiteId), Guid.Parse(user.Id),game);
 
                 if (!success)
                 {
                     return UserMappers.ToUserResponseTrueDto("Close");
-                }
+                }*/
 
                 return UserMappers.ToUserResponseDto(user!);
             }

@@ -2,32 +2,41 @@
 
 namespace WebTest.Middleware;
 
-public class WebSocketMiddleware(RequestDelegate next, IWedSocketManager webSocketManager)
+public class WebSocketMiddleware(
+    RequestDelegate next, 
+    IWedSocketManager webSocketManager,
+    ILogger<WebSocketMiddleware> logger)
 {
 
     public async Task Invoke(HttpContext context)
     {
-        Console.WriteLine("Начало");
-        if (context.WebSockets.IsWebSocketRequest && context.Request.Path == "/game-ws")
+        try
         {
-            Console.WriteLine("Прошел");
-            var webSocket = await context.WebSockets.AcceptWebSocketAsync();
-            var playerId = context.Request.Query["playerId"];
-
-            Console.WriteLine(playerId);
-            
-            if (string.IsNullOrEmpty(playerId))
+            logger.LogInformation("WebSocketMiddleware called");
+            if (context.WebSockets.IsWebSocketRequest && context.Request.Path == "/game-ws")
             {
-                context.Response.StatusCode = 400;
-                return;
-            }
+                var webSocket = await context.WebSockets.AcceptWebSocketAsync();
+                var playerId = context.Request.Query["playerId"];
 
-            await webSocketManager.AddPlayer(Guid.Parse(playerId), webSocket);
+                logger.LogInformation($"WebSocket connected with id {playerId}");
+            
+                if (string.IsNullOrEmpty(playerId))
+                {
+                    context.Response.StatusCode = 400;
+                    return;
+                }
+
+                await webSocketManager.AddPlayer(Guid.Parse(playerId), webSocket);
+            }
+            else
+            {
+                await next(context);
+            }
         }
-        else
+        catch (Exception e)
         {
-            Console.WriteLine("Ошибка" + context.WebSockets.IsWebSocketRequest);
-            await next(context);
+            logger.LogError(e, "WebSocketMiddleware exception");
         }
+        
     }
 }

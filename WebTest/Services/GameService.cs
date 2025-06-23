@@ -66,7 +66,8 @@ public class GameService(IGameRepository gameRepository, IUserRepository userRep
     {
         try
         {
-            var game = await gameRepository.FindGameForIdPlayers(responseDto.PlayerWhiteId, responseDto.PlayerBlackId);
+            var game = await gameRepository.FindGameForIdPlayersElse(responseDto.PlayerWhiteId, responseDto.PlayerBlackId);
+            
             game.WinnerId = responseDto.PlayerWinId;
             game.EndTime = DateTime.Now.ToUniversalTime();
             

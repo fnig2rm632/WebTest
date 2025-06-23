@@ -98,6 +98,7 @@ public class GameLogicService : IGameLogicService
             gameStatus.MoveHistory.Add(move);
             gameStatus.CurrentMove++;
             
+            // Реализация логики игры
             return gameStatus;
         }
         catch (Exception e)
