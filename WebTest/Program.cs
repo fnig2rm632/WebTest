@@ -25,14 +25,20 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 
-/*builder.WebHost.ConfigureKestrel(serverOptions =>
-{
-    serverOptions.Listen(System.Net.IPAddress.Parse("192.168.1.106"), 5160); // Локальный IP
-    serverOptions.Listen(System.Net.IPAddress.Any, 5160); // Все доступные IP
-});*/
+
 
 // OpenAPI 
 builder.Services.AddOpenApi();
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll", builder =>
+    {
+        builder.AllowAnyOrigin()
+            .AllowAnyMethod()
+            .AllowAnyHeader();
+    });
+});
 
 // Подключение к базе
 builder.Services.AddDbContext<ApplicationDbContext>(options => 
@@ -86,19 +92,13 @@ builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IGameRepository, GameRepository>();
 builder.Services.AddScoped<IFriendRepository, FriendRepository>();
 
-/*builder.WebHost.ConfigureKestrel(options =>
-{
-    options.Limits.KeepAliveTimeout = TimeSpan.FromMinutes(2);
-    options.Limits.RequestHeadersTimeout = TimeSpan.FromMinutes(1);
-});*/
 
-// Настройка URL-адресов (до builder.Build())
-// builder.WebHost.UseUrls("http://0.0.0.0:5160"); 
 
 var app = builder.Build();
 
 app.UseWebSockets();
 app.UseMiddleware<WebSocketMiddleware>();
+
 
 
 // Configure the HTTP request pipeline.
@@ -108,7 +108,9 @@ if (app.Environment.IsDevelopment())
     app.MapScalarApiReference();
 }
 
+app.UseCors("AllowAll");
 
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
