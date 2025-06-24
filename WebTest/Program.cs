@@ -19,12 +19,23 @@ using WebTest.Servises;
 using WebSocketManager = WebTest.Services.WebSocketManager;
 using WebSocketMiddleware = WebTest.Middleware.WebSocketMiddleware;
 
-var builder = WebApplication.CreateBuilder(args);
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+{
+    Args = args,
+    ApplicationName = typeof(Program).Assembly.FullName,
+    ContentRootPath = Directory.GetCurrentDirectory(),
+    WebRootPath = "wwwroot",
+    EnvironmentName = Environments.Development
+});
 
 // Добавление Сервисов
 
 builder.Services.AddControllers();
 
+builder.WebHost.ConfigureKestrel(serverOptions =>
+{
+    serverOptions.Listen(System.Net.IPAddress.Parse("195.161.68.85"), 5160); // замените IP и порт
+});
 
 
 // OpenAPI 
